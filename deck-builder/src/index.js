@@ -1,7 +1,9 @@
-import React, { useState } from "react";
+//import React, { useState } from "react";
 import ReactDOM from "react-dom";
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import decklist from "./decklist";
+import { Box, boxesIntersect, useSelectionContainer } from '@air/react-drag-to-select';
+import  { useEffect, useRef, useState } from 'react';
 
 // fake data generator
 const getItems = (count, offset = 0) =>
@@ -41,8 +43,7 @@ const getItemStyle = (isDragging, draggableStyle) => ({
   // some basic styles to make the items look a bit nicer
   userSelect: "none",
   padding: 0,
-  margin: `0 0 2px 2px`,
-  position: 'absolute',
+  margin: `0 0 2px 0px`,
 
   // change background colour if dragging
   background: isDragging ? "lightgreen" : "grey",
@@ -52,10 +53,9 @@ const getItemStyle = (isDragging, draggableStyle) => ({
 });
 const getListStyle = isDraggingOver => ({
   background: isDraggingOver ? "lightblue" : "lightgrey",
-  padding: grid,
-  width: 124,
-  height: 1000,
-  position: 'relative'
+  padding: 2,
+  width: 133,
+  height: 1000
 });
 
 function loadDeckList(list) {
@@ -69,7 +69,114 @@ function loadDeckList(list) {
   return return_cols;
 }
 
+function Card(item, index) {
+  const [selectionBox, setSelectionBox] = useState();
+  const [selectedIndexes, setSelectedIndexes] = useState([]);
+  const selectableItems = useRef([]);
+  const elementsContainerRef = useRef(null);
+  const { DragSelection } = useSelectionContainer({
+    eventsElement: document.getElementById('root'),
+    onSelectionChange: (box) => {
+      /**
+       * Here we make sure to adjust the box's left and top with the scroll position of the window 
+       * @see https://github.com/AirLabsTeam/react-drag-to-select/#scrolling
+       */
+      const scrollAwareBox = {
+        ...box,
+        top: box.top + window.scrollY,
+        left: box.left + window.scrollX
+      }
+
+      setSelectionBox(scrollAwareBox);
+      const indexesToSelect = [];
+      selectableItems.current.forEach((item, index) => {
+        if (boxesIntersect(scrollAwareBox, item)) {
+          indexesToSelect.push(index);
+        }
+      });
+
+      setSelectedIndexes(indexesToSelect);
+    },
+    onSelectionStart: () => {
+      console.log('OnSelectionStart');
+    },
+    onSelectionEnd: () => console.log('OnSelectionEnd'),
+    selectionProps: {
+      style: {
+        border: '2px dashed purple',
+        borderRadius: 4,
+        backgroundColor: 'brown',
+        opacity: 0.5,
+      },
+    },
+    shouldStartSelecting: (target) => {
+      // do something with target to determine if the user should start selecting
+
+      return true;
+    }
+  });
+
+  useEffect(() => {
+  
+    if (elementsContainerRef.current) {
+      Array.from(elementsContainerRef.current.children).forEach((item) => {
+        const { left, top, width, height } = item.getBoundingClientRect();
+        selectableItems.current.push({
+          left,
+          top,
+          width,
+          height,
+        });
+      });
+    }
+  }, []);
+  return(
+  <Draggable
+      key={item.key}
+      draggableId={item.key.toString()}
+      index={index}
+    >
+      {(provided, snapshot) => (
+        <div style={{height: '20px'}}>
+        <img 
+          src={`https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=${item.id}&type=card`}
+          alt={item.name}
+          width="130" 
+          ref={provided.innerRef}
+          {...provided.draggableProps}
+          {...provided.dragHandleProps}
+          style={getItemStyle(
+            snapshot.isDragging,
+            provided.draggableProps.style
+          )}
+        />
+        </div>
+      )}
+    </Draggable>
+  );
+}
+
+function DeckColumn(el, ind) {
+  return (
+    <Droppable key={ind} droppableId={`${ind}`}>
+      {(provided, snapshot) => (
+        <div
+          ref={provided.innerRef}
+          style={getListStyle(snapshot.isDraggingOver)}
+          {...provided.droppableProps}
+        >
+          {el.map((item, index) => (
+            Card(item, index)
+          ))}
+          {provided.placeholder}
+        </div>
+      )}
+    </Droppable>
+  );
+}
+
 function App() {
+  
   console.log([[...loadDeckList(decklist)]]);
   const [state, setState] = useState(loadDeckList(decklist));
 
@@ -118,41 +225,7 @@ function App() {
       <div style={{ display: "flex" }}>
         <DragDropContext onDragEnd={onDragEnd}>
           {state.map((el, ind) => (
-            <Droppable key={ind} droppableId={`${ind}`}>
-              {(provided, snapshot) => (
-                <div
-                  ref={provided.innerRef}
-                  style={getListStyle(snapshot.isDraggingOver)}
-                  {...provided.droppableProps}
-                >
-                  {el.map((item, index) => (
-                    <Draggable
-                      key={item.key}
-                      draggableId={item.key.toString()}
-                      index={index}
-                    >
-                      {(provided, snapshot) => (
-                        <div style={{height: '20px'}}>
-                        <img 
-                          src={`https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=${item.id}&type=card`}
-                          alt={item.name}
-                          width="120" 
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
-                          {...provided.dragHandleProps}
-                          style={getItemStyle(
-                            snapshot.isDragging,
-                            provided.draggableProps.style
-                          )}
-                        />
-                        </div>
-                      )}
-                    </Draggable>
-                  ))}
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
+            DeckColumn(el, ind)
           ))}
         </DragDropContext>
       </div>
