@@ -2,8 +2,9 @@
 import ReactDOM from "react-dom";
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import decklist from "./decklist";
-import { Box, boxesIntersect, useSelectionContainer } from '@air/react-drag-to-select';
-import  { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { boxesIntersect, useSelectionContainer } from "@air/react-drag-to-select";
+import "./styles.css";
 
 // fake data generator
 const getItems = (count, offset = 0) =>
@@ -13,7 +14,7 @@ const getItems = (count, offset = 0) =>
   }));
 
 const reorder = (list, startIndex, endIndex, state) => {
-  console.log(state)
+  
   const result = Array.from(list);
   const [removed] = result.splice(startIndex, 1);
   result.splice(endIndex, 0, removed);
@@ -21,6 +22,18 @@ const reorder = (list, startIndex, endIndex, state) => {
   return result;
 };
 
+const MouseSelection = React.memo(({ onSelectionChange }) => {
+  const { DragSelection } = useSelectionContainer({
+    eventsElement: document.getElementById("root"),
+    onSelectionChange,
+    onSelectionStart: () => {
+      console.log("OnSelectionStart");
+    },
+    onSelectionEnd: () => console.log("OnSelectionEnd")
+  });
+
+  return <DragSelection />;
+});
 /**
  * Moves an item from one list to another list.
  */
@@ -65,71 +78,14 @@ function loadDeckList(list) {
   }
   const unique_mv = expandedList.map((e)=>(e.mv)).filter((value, index, array) => (array.indexOf(value) === index)).sort();
   const return_cols = unique_mv.map((mv)=>expandedList.filter((card)=>card.mv==mv));
-  console.log(return_cols);
   return return_cols;
 }
 
-function Card(item, index) {
-  const [selectionBox, setSelectionBox] = useState();
-  const [selectedIndexes, setSelectedIndexes] = useState([]);
-  const selectableItems = useRef([]);
-  const elementsContainerRef = useRef(null);
-  const { DragSelection } = useSelectionContainer({
-    eventsElement: document.getElementById('root'),
-    onSelectionChange: (box) => {
-      /**
-       * Here we make sure to adjust the box's left and top with the scroll position of the window 
-       * @see https://github.com/AirLabsTeam/react-drag-to-select/#scrolling
-       */
-      const scrollAwareBox = {
-        ...box,
-        top: box.top + window.scrollY,
-        left: box.left + window.scrollX
-      }
-
-      setSelectionBox(scrollAwareBox);
-      const indexesToSelect = [];
-      selectableItems.current.forEach((item, index) => {
-        if (boxesIntersect(scrollAwareBox, item)) {
-          indexesToSelect.push(index);
-        }
-      });
-
-      setSelectedIndexes(indexesToSelect);
-    },
-    onSelectionStart: () => {
-      console.log('OnSelectionStart');
-    },
-    onSelectionEnd: () => console.log('OnSelectionEnd'),
-    selectionProps: {
-      style: {
-        border: '2px dashed purple',
-        borderRadius: 4,
-        backgroundColor: 'brown',
-        opacity: 0.5,
-      },
-    },
-    shouldStartSelecting: (target) => {
-      // do something with target to determine if the user should start selecting
-
-      return true;
-    }
-  });
-
-  useEffect(() => {
-  
-    if (elementsContainerRef.current) {
-      Array.from(elementsContainerRef.current.children).forEach((item) => {
-        const { left, top, width, height } = item.getBoundingClientRect();
-        selectableItems.current.push({
-          left,
-          top,
-          width,
-          height,
-        });
-      });
-    }
-  }, []);
+function Card(item, index, selected_indexes) {
+  console.log('card');
+  console.log(selected_indexes);
+  console.log(item.key);
+  console.log(selected_indexes.includes(item.key));
   return(
   <Draggable
       key={item.key}
@@ -137,11 +93,18 @@ function Card(item, index) {
       index={index}
     >
       {(provided, snapshot) => (
-        <div style={{height: '20px'}}>
+        <div 
+          style={{height: '20px'}}
+        >
         <img 
           src={`https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=${item.id}&type=card`}
           alt={item.name}
           width="130" 
+          height="181"
+          data-key={item.key}
+          className={`element ${
+            selected_indexes.includes(item.key.toString()) ? "selected" : ""
+          } `}
           ref={provided.innerRef}
           {...provided.draggableProps}
           {...provided.dragHandleProps}
@@ -156,17 +119,18 @@ function Card(item, index) {
   );
 }
 
-function DeckColumn(el, ind) {
+function DeckColumn(el, ind, selected_indexes) {
   return (
     <Droppable key={ind} droppableId={`${ind}`}>
       {(provided, snapshot) => (
         <div
           ref={provided.innerRef}
+          className='elements-container'
           style={getListStyle(snapshot.isDraggingOver)}
           {...provided.droppableProps}
         >
           {el.map((item, index) => (
-            Card(item, index)
+            Card(item, index, selected_indexes)
           ))}
           {provided.placeholder}
         </div>
@@ -176,13 +140,61 @@ function DeckColumn(el, ind) {
 }
 
 function App() {
-  
-  console.log([[...loadDeckList(decklist)]]);
   const [state, setState] = useState(loadDeckList(decklist));
+  const [selectionBox, setSelectionBox] = useState();
+  const [selectedIndexes, setSelectedIndexes] = useState([]);
+  const selectableItems = useRef([]);
+
+  useEffect(() => {
+    const elementsContainers = document.getElementsByClassName("elements-container");
+    if (elementsContainers) {
+      Array.from(elementsContainers)
+        .map((e)=>(Array.from(e.childNodes)
+        .map((e)=>(Array.from(e.childNodes)))))
+        .flat(2)
+        .forEach((item) => {
+          const rectangle = item.getBoundingClientRect();
+          selectableItems.current.push({
+            card: item,
+            bound: rectangle
+        });
+      });
+    }
+  }, []);
+
+  const boxIntersects = ((box, item, ) => {
+    const box_l = box.left;
+    const box_r = box.left + box.width;
+    const box_t = box.top;
+    const box_b = box.top + box.height;
+    const item_l = item.left;
+    const item_r = item.left + item.width;
+    const item_t = item.top;
+    const item_b = item.top + 20; //TODO fix this so bottom card gets selected from whole art, remove magic number
+    return (
+      box_r >= item_l && item_r >= box_l && box_b >= item_t && item_b >= box_t
+    )
+  })
+
+  const handleSelectionChange = useCallback(
+    (box) => {
+      setSelectionBox(box);
+      console.log(selectableItems);
+      const indexesToSelect = [];
+      selectableItems.current.forEach((item, index) => {
+        if (boxIntersects(box, item.bound)) {
+          indexesToSelect.push(item.card.dataset.key);
+        }
+      });
+
+      setSelectedIndexes(indexesToSelect);
+      console.log(indexesToSelect);
+    },
+    [selectableItems]
+  );
 
   function onDragEnd(result) {
     const { source, destination } = result;
-    console.log('dragged');
     // dropped outside the list
     if (!destination) {
       return;
@@ -205,7 +217,8 @@ function App() {
     }
   }
   return (
-    <div>
+    <div className='container'>
+    <MouseSelection onSelectionChange={handleSelectionChange} />
       <button
         type="button"
         onClick={() => {
@@ -225,7 +238,7 @@ function App() {
       <div style={{ display: "flex" }}>
         <DragDropContext onDragEnd={onDragEnd}>
           {state.map((el, ind) => (
-            DeckColumn(el, ind)
+            DeckColumn(el, ind, selectedIndexes)
           ))}
         </DragDropContext>
       </div>

@@ -1,0 +1,4 @@
+.selected {
+    outline: 4px solid rgb(99, 148, 198);
+    outline-offset: -4px;
+  }
