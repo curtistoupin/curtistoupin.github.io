@@ -2,3 +2,15 @@
     outline: 4px solid rgb(99, 148, 198);
     outline-offset: -4px;
   }
+
+.draggingOver {
+    box-shadow: inset 0px -2px 0px 0px rgb(255, 165, 0);
+}
+
+.beingMoved {
+  visibility: hidden;
+}
+
+.cardsBeingDragged {
+  visibility: visible
+}

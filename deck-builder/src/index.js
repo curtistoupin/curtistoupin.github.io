@@ -1,59 +1,36 @@
 //import React, { useState } from "react";
 import ReactDOM from "react-dom";
-import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import decklist from "./decklist";
 import React, { useEffect, useRef, useState } from "react";
 import "./styles.css";
+import multiDragImage from './multidrag.png'
+import blankDragImage from './blank.png'
 
 const [dragSelect, dragDrop] = [0,1]
 
-const reorder = (list, startIndex, endIndex, state) => {
-  
-  const result = Array.from(list);
-  const [removed] = result.splice(startIndex, 1);
-  result.splice(endIndex, 0, removed);
-
-  return result;
-};
-
-/**
- * Moves an item from one list to another list.
- */
-const move = (source, destination, droppableSource, droppableDestination) => {
-  const sourceClone = Array.from(source);
-  const destClone = Array.from(destination);
-  const [removed] = sourceClone.splice(droppableSource.index, 1);
-
-  destClone.splice(droppableDestination.index, 0, removed);
-
-  const result = {};
-  result[droppableSource.droppableId] = sourceClone;
-  result[droppableDestination.droppableId] = destClone;
-
-  return result;
-};
-const grid = 8;
-
-const getItemStyle = (isDragging, draggableStyle) => ({
+const getItemStyle = () => ({
   // some basic styles to make the items look a bit nicer
   userSelect: "none",
   userDrag: "none",
+  pointerEvents:"none",
   padding: 0,
   margin: `0 0 2px 0px`,
-
-  // change background colour if dragging
-  background: isDragging ? "lightgreen" : "grey",
-
-  // styles we need to apply on draggables
-  ...draggableStyle
+  draggable: "false",
+  position: 'relative',
+  zIndex: -1
 });
+
 const getListStyle = isDraggingOver => ({
   background: isDraggingOver ? "lightblue" : "lightgrey",
   padding: 2,
   width: 133,
   height: 1000,
+  draggable: 'false',
+  pointerEvents:"none",
   userSelect: "none",
-  userDrag: "none"
+  userDrag: "none",
+  position: "relative",
+  zIndex: -2
 });
 
 function loadDeckList(list) {
@@ -66,60 +43,6 @@ function loadDeckList(list) {
   return return_cols;
 }
 
-function Card(item, index, selected_indexes) {
-  return(
-  <Draggable
-      key={item.key}
-      draggableId={item.key.toString()}
-      index={index}
-    >
-      {(provided, snapshot) => (
-        <div 
-          style={{height: '20px'}}
-        >
-        <img 
-          src={`https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=${item.id}&type=card`}
-          alt={item.name}
-          width="130" 
-          height="181"
-          data-key={item.key}
-          className={`element ${
-            selected_indexes.includes(item.key.toString()) ? "selected" : ""
-          } `}
-          ref={provided.innerRef}
-          {...provided.draggableProps}
-          {...provided.dragHandleProps}
-          style={getItemStyle(
-            snapshot.isDragging,
-            provided.draggableProps.style
-          )}
-        />
-        </div>
-      )}
-    </Draggable>
-  );
-}
-
-function DeckColumn(el, ind, selected_indexes) {
-  return (
-    <Droppable key={ind} droppableId={`${ind}`}>
-      {(provided, snapshot) => (
-        <div
-          ref={provided.innerRef}
-          className='elements-container'
-          style={getListStyle(snapshot.isDraggingOver)}
-          {...provided.droppableProps}
-        >
-          {el.map((item, index) => (
-            Card(item, index, selected_indexes)
-          ))}
-          {provided.placeholder}
-        </div>
-      )}
-    </Droppable>
-  );
-}
-
 function App() {
   const [state, setState] = useState(loadDeckList(decklist));
   const [selectedIndexes, setSelectedIndexes] = useState([]);
@@ -127,6 +50,7 @@ function App() {
   const [mouseStart, setMouseStart] = useState(null);
   const [mousePos, setMousePos] = useState(null);
   const [dragState, setDragState] = useState(dragDrop);
+  const [mouseMoving, setMouseMoving] = useState(false);
 
   useEffect(() => {
     updateSelectableItems();
@@ -149,9 +73,26 @@ function App() {
       opacity: 0.45
     })
   }
+  
+  const ghostImageDivStyle = () => {
+    return ( {
+      position: 'absolute',
+      visbility: ((selectedIndexes.length > 0) && (mouseMoving)) ? 'visible' : 'hidden',
+      left: (mousePos == null) ? 0 : mousePos.x,
+      top: (mousePos == null) ? 0 : mousePos.y+16,
+      opacity: 0.75,
+      pointerEvents: 'none'
+    })
+  }
 
   const boxIntersects = ((box, item) => {
-    const lastInCol = state.map((col) => (col[col.length-1].key==item.card.dataset.key)).includes(true);
+    const lastInCol = state.map((col) => {
+      if (col.length == 0) {
+        return null;
+      } else {
+        return col[col.length-1].key==item.card.dataset.key;
+      }
+    }).includes(true);
     const box_l = box.left;
     const box_r = box.left + box.width;
     const box_t = box.top;
@@ -164,6 +105,21 @@ function App() {
       box_r >= item_l && item_r >= box_l && box_b >= item_t && item_b >= box_t
     )
   })
+
+  const columnUnderCursor = () => {
+    const elementsContainers = document.getElementsByClassName("elements-container");
+    for (let col = 0; col < elementsContainers.length; col++) {
+      const rectangle = elementsContainers[col].getBoundingClientRect();
+      if(rectangle.left <= mousePos.x &&
+        rectangle.right >= mousePos.x &&
+        rectangle.top <= mousePos.y &&
+        rectangle.bottom >= mousePos.y
+      ) {
+        return col;
+      }
+    }
+    return null;
+  }
 
   const updateSelectableItems = () => {
     const elementsContainers = document.getElementsByClassName("elements-container");
@@ -185,19 +141,33 @@ function App() {
     }
   }
 
+  const getGhostImageLink = () => {
+    if(selectedIndexes.length > 1) {
+      return multiDragImage;
+    } else if (selectedIndexes.length > 0) {
+      return getSelectableByKey(selectedIndexes[0]).card.attributes.src.textContent;
+    } else {
+      return blankDragImage;
+    }
+  }
+  
+  const getGhostImagePos = () => {
+    if(mousePos == null || !mouseMoving) {
+      return [0,0]
+    } else {
+      return [mousePos.x, mousePos.y+16]
+    }
+  }
+
   const updateSelectedItems = (box) => {
     const indexesToSelect = [];
-    selectableItems.current.forEach((item, index) => {
+    selectableItems.current.forEach((item) => {
       if(boxIntersects(box, item)) {
         indexesToSelect.push(item.card.dataset.key);
       }
     });
     setSelectedIndexes(indexesToSelect);
   }
-
-  // const clearSelectedItems = () => {
-  //   setSelectedIndexes([]);
-  // }
 
   const handleMouseMove = (event) => {
     setMousePos({ x: event.clientX, y: event.clientY });
@@ -210,33 +180,64 @@ function App() {
       const box_h = box_b - box_t;
       updateSelectedItems({left: box_l, top: box_t, width: box_w, height: box_h});
     }
+    if(dragState == dragDrop) {
+      const dx = mouseStart.x - mousePos.x;
+      const dy = mouseStart.y - mousePos.y;
+      const distance = Math.pow((Math.pow(dx, 2) + Math.pow(dy, 2)), 0.5)
+      if(distance > 5) {
+        setMouseMoving(true);
+      }
+    }
+  }
+
+  const cursorOverCard = (x,y) => {
+    const box = {
+      left: x,
+      top: y,
+      width: 0,
+      height: 0
+    }
+    return selectableItems.current.map((item) => (boxIntersects(box, item))).includes(true);
+  }
+
+  const cursorOverSelectedCard = (x,y) => {
+    const box = {
+      left: x,
+      top: y,
+      width: 0,
+      height: 0
+    }
+    return (
+      selectableItems.current.filter(
+        (item)=>(
+          selectedIndexes.includes(
+            item.card.dataset.key
+          )
+        )
+      ).map(
+        (item) => (
+          boxIntersects(box, item)
+        )
+      ).includes(true)
+    );
   }
 
   const onMouseDown = (event) => {
     setMouseStart({ x: event.clientX, y: event.clientY });
     setMousePos({ x : event.clientX, y: event.clientY });
-    updateSelectedItems({left: event.clientX, top: event.clientY, width: 0, height: 0});
-
-    const box = {
-      left: event.clientX,
-      top: event.clientY,
-      width: 0,
-      height: 0
+    if(!cursorOverSelectedCard(event.clientX, event.clientY)) {
+      updateSelectedItems({left: event.clientX, top: event.clientY, width: 0, height: 0});
     }
-    var intersects = false;
-    selectableItems.current.forEach((item) => {
-      if (boxIntersects(box, item)) {
-        intersects = true;
-      }
-    })
-    const newDragState = intersects ? dragDrop : dragSelect;
+    const newDragState = cursorOverCard(event.clientX, event.clientY) ? dragDrop : dragSelect;
+
     setDragState(newDragState);
   }
   
   const onMouseUp = (event) => {
-    if(dragState == dragDrop) {
-
+    if(dragState == dragDrop && mouseMoving) {
+      onDragDropEnd(event.clientX, event.clientY);
     }
+    setMouseMoving(false);
     setDragState(dragDrop);
     setMouseStart(null);
     setMousePos(null);
@@ -249,42 +250,89 @@ function App() {
       window.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  },[])
+  })
   
   useEffect(() => {
     if (mouseStart != null) window.addEventListener('mousemove', handleMouseMove);
     return () => { window.removeEventListener('mousemove', handleMouseMove); }
   })
 
-  function onDragEnd(result) {
-    const { source, destination } = result;
+  const getSelectableByKey = (keyProvided) => {
+    const [returnItem] = selectableItems.current.filter(
+      (item) => (item.card.dataset.key == keyProvided)
+    )
+    return returnItem;
+  }
+
+  const isDraggingOverCard = (providedKey) => {
+    if(dragState != dragDrop || 
+      mousePos == null || 
+      !mouseMoving || !
+      cursorOverCard(mousePos.x, mousePos.y) ||
+      selectedIndexes.includes(providedKey.toString())) {
+      return(false);
+    }
+    const [x, y] = [mousePos.x,  mousePos.y]
+    for(let col = 0; col < state.length; col++) {
+      const unselected = state[col].filter((item) => (!selectedIndexes.includes(item.key.toString())));
+      for(let ind = 0; ind < unselected.length; ind++) {
+        if(unselected[ind].key != providedKey.toString()) {
+          continue
+        }
+        const item = getSelectableByKey(unselected[ind].key);
+        const nextItem = ((ind+1) < unselected.length) ? getSelectableByKey(unselected[ind+1].key) : null;
+        const box_t = item.bound.top;
+        const box_l = item.bound.left;
+        const box_r = item.bound.left + item.bound.width;
+        const box_b = (nextItem == null) ? (item.bound.top + item.bound.height) : (nextItem.bound.top);
+        if( box_l <= x && x <= box_r && box_t <= y && y <= box_b) {
+          return(true);
+        }
+      }
+    }
+    return(false);
+  }
+
+  function onDragDropEnd() {
     // dropped outside the list
-    if (!destination) {
+    const dropCol = columnUnderCursor();
+    if (dropCol == null) {
       return;
     }
-    const sInd = +source.droppableId;
-    const dInd = +destination.droppableId;
 
-    if (sInd === dInd) {
-      const items = reorder(state[sInd], source.index, destination.index, state);
-      const newState = [...state];
-      newState[sInd] = items;
-      setState(newState);
-    } else {
-      const result = move(state[sInd], state[dInd], source, destination);
-      const newState = [...state];
-      newState[sInd] = result[sInd];
-      newState[dInd] = result[dInd];
-
-      setState(newState.filter(group => group.length));
+    var newState = Array.from(state.map((column) => (Array.from(column))))
+    const selection = newState.flat(2).filter((item) => (selectedIndexes.includes(item.key.toString())))
+    selection.sort((a, b) => {
+      if(a.mv > b.mv) {
+        return 1;
+      } else if (a.mv < b.mv) {
+        return -1;
+      } else if (a.name > b.name) {
+        return 1;
+      } else if (a.name < b.name) {
+        return -1;
+      }
+      return 0;
+    })
+    newState = [...newState.map((column) => (column.filter((item) => (!selectedIndexes.includes(item.key.toString())))))]
+    for (let i = 0; i < newState[dropCol].length; i++) {
+      const item = getSelectableByKey(newState[dropCol][i].key);
+      if (mousePos.y < item.bound.top) {
+        newState[dropCol].splice(i, 0, ...selection);
+        setState(newState);
+        return;
+      }
     }
-    updateSelectableItems();
+    newState[dropCol].splice(newState[dropCol].length+1, 0, ...selection);
+    setState(newState);
+    return;
   }
+
   return (
     <div 
       className='container' 
       draggable="false"
-      style={{userDrag: "none"}}
+      style={{pointerEvents:"none"}}
     >
       <button
         type="button"
@@ -302,18 +350,70 @@ function App() {
       >
         Add new item
       </button>
-      <div style={{ display: "flex" }}>
-        <DragDropContext onDragEnd={onDragEnd}>
-          {state.map((el, ind) => (
-            DeckColumn(el, ind, selectedIndexes)
+      <div draggable = 'false' style={{ display: "flex"}}>
+        {state.map((el, ind) => (
+          <div
+          className='elements-container'
+          key = {`deck-col-list-${ind}`}
+          style={getListStyle(false)}
+          draggable = "false"
+        >
+          {el.map((item, index) => (
+            <div 
+              style={{height: '20px', width:130}}
+              key = {`card-div-${index}`}
+              draggable = 'false'
+              className = {`card-div ${
+                isDraggingOverCard(item.key.toString()) ? "draggingOver" : ""
+              } ${
+                selectedIndexes.includes(item.key.toString()) && mouseMoving ? "beingMoved" : ""
+              }` }
+            >
+              <img 
+                src={`https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=${item.id}&type=card`}
+                alt={item.name}
+                width="130" 
+                height="181"
+                data-key={item.key}
+                draggable='false'
+                className={`element ${
+                  selectedIndexes.includes(item.key.toString()) ? "selected" : ""
+                } ${
+                  selectedIndexes.includes(item.key.toString()) && mouseMoving ? "beingMoved" : ""
+                }`}
+                style={getItemStyle(false)}
+              />
+            </div>
           ))}
-        </DragDropContext>
+        </div>
+        ))}
       </div>
       <div 
         className = 'selectBox'
+        draggable = 'false'
         style = {selectBoxStyle()}
       >
-      
+      </div>
+      <div 
+          draggable = 'false'
+          className={`dragPreview 
+            ${((selectedIndexes.length > 0) && (mouseMoving)) ? "cardsBeingDragged" : ""}
+          `}
+          style={ghostImageDivStyle()}
+      >
+        <img
+          src={getGhostImageLink()}
+          alt='drag'
+          draggable = 'false'
+          width='100'
+          className={`dragPreviewImg
+            ${((selectedIndexes.length > 0) && (mouseMoving)) ? "cardsBeingDragged" : ""}
+          `}
+          style={{
+            visibility: `${((selectedIndexes.length > 0) && (mouseMoving)) ? "visible" : "hidden"}`, 
+            position: "relative"
+          }}
+        />
       </div>
     </div>
   );
